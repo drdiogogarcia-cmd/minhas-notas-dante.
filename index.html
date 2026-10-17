@@ -58,7 +58,32 @@ if(found!==null){out.push({id,label,value:String(found)});break}
 }
 return out;
 }
-document.getElementById('scanPrint').onclick=async()=>{review.classList.add('hidden');if(!file.files?.length){status.textContent='Selecione um print primeiro.';return}const b=document.getElementById('scanPrint');b.disabled=true;status.textContent='Carregando leitor de imagens...';try{await loadOCR();status.textContent='Lendo o print... Isso pode levar alguns segundos.';const result=await window.Tesseract.recognize(file.files[0],'por+eng');const text=result.data.text||'';document.getElementById('ocrRaw').textContent=text;const norm=normalize(text);for(const s of Object.keys(templates)){if(norm.includes(normalize(s))){select.value=s;break}}candidates=extract(text,select.value);fields.innerHTML='';if(!candidates.length){status.textContent='Não encontrei notas com segurança neste print. Tente uma imagem mais nítida ou abra o texto reconhecido para verificar.';review.classList.remove('hidden');return}for(const c of candidates){const wrap=document.createElement('div');wrap.className='field';const lab=document.createElement('label');lab.textContent=c.label;const inp=document.createElement('input');inp.type='number';inp.min='0';inp.max=String(templates[select.value].find(x=>x[0]===c.id)[3]);inp.step='.01';inp.value=c.value;inp.dataset.id=c.id;wrap.append(lab,inp);fields.append(wrap)}status.textContent=candidates.length+' nota(s) encontrada(s). Confira e salve.';review.classList.remove('hidden')}catch(e){status.textContent='Falha na leitura: '+e.message}finally{b.disabled=false}};
+function extractSpatial(tsv,s){
+if(!tsv)return [];
+const rows=tsv.trim().split(/\r?\n/).slice(1).map(l=>l.split('\t')).filter(a=>a.length>=12&&a[11]?.trim()).map(a=>({text:a.slice(11).join(' ').trim(),x:+a[6],y:+a[7],w:+a[8],height:+a[9],conf:+a[10]})).filter(w=>Number.isFinite(w.x)&&Number.isFinite(w.y));
+if(!rows.length)return [];
+const width=Math.max(...rows.map(w=>w.x+w.w)),out=[];
+const norm=t=>normalize(t).replace(/[^a-z0-9]+/g,' ').trim();
+const groups=[];for(const w of rows.sort((a,b)=>a.y-b.y||a.x-b.x)){let g=groups.find(g=>Math.abs(g.y-w.y)<Math.max(8,w.height*.55));if(!g){g={y:w.y,words:[]};groups.push(g)}g.words.push(w)}
+groups.sort((a,b)=>a.y-b.y);for(const g of groups){g.words.sort((a,b)=>a.x-b.x);g.text=g.words.map(w=>w.text).join(' ');g.left=g.words.filter(w=>w.x<width*.76).map(w=>w.text).join(' ');g.right=g.words.filter(w=>w.x>=width*.76).map(w=>w.text).join(' ')}
+const aliases={AV1:['avaliatorio 1'],AV2:['avaliatorio 2','av2 01'],FOTO:['fotovoz'],RIO:['rio de janeiro em dois tempos'],AAD1:['aad1','analise de dados ipcc','producao e atitudinal'],AAD2:['aad2','apresentacao parte 2','primeiro prototipo','reescrita'],AAD3:['aad3','segundo prototipo'],QSAS:['qsas','questionario sas'],LG:['letramento geografico'],QC:['questionario climatologia'],A1:['lesson 7 draft'],PI_DUN:['pi dun','projeto interdisciplinar'],TC1:['tc1','teste de calculo 1'],TC2:['tc2','teste de calculo 2'],AL:['atividade literaria'],LAB:['laboratorio'],CR:['concurso de redacao'],AV:['avaliatorio'],PF:['prova final'],PFI:['prova final interdisciplinar'],EN:['engajamento'],DUN1:['documento de posicionamento'],DUN2:['interacao nas sessoes'],AAD:['atividade avaliativa diversificada'],PROJF:['projeto final'],DESAFIO:['desafio pead'],PF1:['mega rampa design'],PF2:['desempenho na rampa']};
+const nums=t=>[...t.matchAll(/\b(\d{1,2}[.,]\d{1,2})\b/g)].map(m=>Number(m[1].replace(',','.')));
+for(const [id,label,weight,max] of templates[s]){
+const keys=(aliases[id]||[]).concat([label]).map(norm).filter(k=>k.length>=4);
+let matched=-1;
+for(let i=0;i<groups.length;i++){const g=groups[i];const current=norm(g.left);const next=norm(groups.slice(i,i+3).map(x=>x.left).join(' '));if(keys.some(k=>current.includes(k)||next.includes(k))&&!/subtotal|formula/.test(current)){matched=i;break}}
+if(matched<0)continue;
+const y0=groups[matched].y;let value=null;
+for(let j=matched;j<groups.length&&groups[j].y<y0+125;j++){
+const g=groups[j];if(j>matched&&/subtotal|formula|media|avaliatorio [12]|prova final|dante un/.test(norm(g.left)))break;
+if(/max|m[aá]x|%|ver prova|subtotal|formula/.test(g.right.toLowerCase()))continue;
+const possible=nums(g.right).filter(n=>n>=0&&n<=max);if(possible.length){value=possible[0];break}
+}
+if(value!==null)out.push({id,label,value:String(value)});
+}
+return out;
+}
+document.getElementById('scanPrint').onclick=async()=>{review.classList.add('hidden');if(!file.files?.length){status.textContent='Selecione um print primeiro.';return}const b=document.getElementById('scanPrint');b.disabled=true;status.textContent='Carregando leitor de imagens...';try{await loadOCR();status.textContent='Lendo o print... Isso pode levar alguns segundos.';const result=await window.Tesseract.recognize(file.files[0],'por+eng',{}, {tsv:true});const text=result.data.text||'';document.getElementById('ocrRaw').textContent=text;const norm=normalize(text);for(const s of Object.keys(templates)){if(norm.includes(normalize(s))){select.value=s;break}}candidates=extractSpatial(result.data.tsv,select.value);fields.innerHTML='';if(!candidates.length){status.textContent='Não consegui associar com segurança notas às avaliações. Tente um print ampliado, com a coluna de notas visível.';review.classList.remove('hidden');return}for(const c of candidates){const wrap=document.createElement('div');wrap.className='field';const lab=document.createElement('label');lab.textContent=c.label;const inp=document.createElement('input');inp.type='number';inp.min='0';inp.max=String(templates[select.value].find(x=>x[0]===c.id)[3]);inp.step='.01';inp.value=c.value;inp.dataset.id=c.id;wrap.append(lab,inp);fields.append(wrap)}status.textContent=candidates.length+' nota(s) encontrada(s). Confira e salve.';review.classList.remove('hidden')}catch(e){status.textContent='Falha na leitura: '+e.message}finally{b.disabled=false}};
 select.addEventListener('change',()=>{review.classList.add('hidden');status.textContent='Disciplina alterada. Clique em Ler notas do print novamente.'});
 document.getElementById('confirmImport').onclick=()=>{let count=0;for(const inp of fields.querySelectorAll('input[data-id]')){const cfg=templates[select.value].find(x=>x[0]===inp.dataset.id);if(!cfg||!valid(inp.value,cfg[3])){status.textContent='Confira os valores: existe uma nota fora da escala.';return}data[select.value]??={};data[select.value][inp.dataset.id]=inp.value;count++}save();renderCards();status.textContent=count+' nota(s) salva(s) em '+select.value+' neste navegador.';review.classList.add('hidden')};
 })();
