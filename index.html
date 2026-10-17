@@ -76,8 +76,21 @@ if(matched<0)continue;
 const y0=groups[matched].y;let value=null;
 for(let j=matched;j<groups.length&&groups[j].y<y0+125;j++){
 const g=groups[j];if(j>matched&&/subtotal|formula|media|avaliatorio [12]|prova final|dante un/.test(norm(g.left)))break;
-if(/max|m[aá]x|%|ver prova|subtotal|formula/.test(g.right.toLowerCase()))continue;
+if(/max|m[aá]x|%|subtotal|formula/.test(g.right.toLowerCase()))continue;
 const possible=nums(g.right).filter(n=>n>=0&&n<=max);if(possible.length){value=possible[0];break}
+}
+if(value===null&&(id==='AV1'||id==='AV2')){
+const anchor=id==='AV1'?/avaliat[oó]rio\s*1/i:/avaliat[oó]rio\s*2/i;
+const lines=groups.map(g=>g.text);
+let at=lines.findIndex(l=>anchor.test(l));
+if(at>=0){
+const stop=/avaliat[oó]rio\s*[12]|subtotal|prova final/i;
+for(let j=at;j<Math.min(at+6,groups.length);j++){
+if(j>at&&stop.test(lines[j]))break;
+const g=groups[j];const eligible=g.words.filter(w=>w.x>=width*.69&&/^\d{1,2}[.,]\d{1,2}$/.test(w.text.trim())).map(w=>Number(w.text.replace(',','.'))).filter(n=>n<=max);
+if(eligible.length){value=eligible[eligible.length-1];break}
+}
+}
 }
 if(value!==null)out.push({id,label,value:String(value)});
 }
