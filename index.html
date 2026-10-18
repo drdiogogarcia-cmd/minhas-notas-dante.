@@ -97,14 +97,19 @@ if(found)out.push(found)
 return out
 }
 async function refineMathOCR(file,result){
-const text=result.data.text||'',lines=text.split(/\n/),out=[];
-const number=s=>{const m=s.match(/\b(\d{1,2}[.,]\d{1,2})\b/);return m?Number(m[1].replace(',','.')):null};
-const patterns=[
-['AV2',/avaliat[oó]rio\s*2/i,/\b(\d{1,2}[.,]\d{2})\b/],
-['TC1',/teste\s*de\s*c[aá]lculo\s*1|c[aá]lculo\s*1/i,/\b(\d{1,2}[.,]\d{2})\b/],
-['TC2',/teste\s*de\s*c[aá]lculo\s*2|c[aá]lculo\s*2/i,/\b(\d{1,2}[.,]\d{2})\b/]
-];
-for(const [id,re] of patterns){for(let i=0;i<lines.length;i++){if(!re.test(lines[i]))continue;const fragment=lines.slice(i,Math.min(i+3,lines.length)).join(' ');const matches=[...fragment.matchAll(/\b(\d{1,2}[.,]\d{2})\b/g)].map(m=>Number(m[1].replace(',','.'))).filter(n=>n<=10);const chosen=matches.find(n=>n!==10&&n!==15&&n!==7.5);if(chosen!==undefined){out.push({id,label:templates['Matemática'].find(x=>x[0]===id)[1],value:String(chosen),warning:true});break}}}
+const text=result.data.text||'';
+const lines=text.split(/\n/);
+const norm=t=>normalize(t).replace(/[^a-z0-9.,]+/g,' ').trim();
+const num=t=>{const m=t.match(/\b(\d{1,2}[.,]\d{2})\b/);return m?Number(m[1].replace(',','.')):null};
+const cfg=templates['Matemática'];
+const out=[];
+const av2=lines.map(norm).find(l=>/avaliat[oó]rio\s*2/.test(l)&&/\b\d[.,]\d{2}\b/.test(l));
+if(av2){const m=av2.match(/avaliat[oó]rio\s*2[^\d]*(\d{1,2}[.,]\d{2})/);if(m)out.push({id:'AV2',label:cfg.find(x=>x[0]==='AV2')[1],value:String(Number(m[1].replace(',','.'))),warning:true})}
+const joined=lines.map(norm).join(' ');
+const tc1=joined.match(/(?:tc1|teste de c[aá]lculo\s*1|c[aá]lculo\s*1)(?:\s|[^\d]){0,45}?(\d{1,2}[.,]\d{2})/i);
+if(tc1){const v=Number(tc1[1].replace(',','.'));if(v<=10)out.push({id:'TC1',label:cfg.find(x=>x[0]==='TC1')[1],value:String(v),warning:true})}
+const tc2=joined.match(/(?:tc2|teste de c[aá]lculo\s*2|c[aá]lculo\s*2)(?:\s|[^\d]){0,25}?(\d{1,2}[.,]\d{2})/i);
+if(tc2){const v=Number(tc2[1].replace(',','.'));if(v<=10)out.push({id:'TC2',label:cfg.find(x=>x[0]==='TC2')[1],value:String(v),warning:true})}
 return out
 }
 document.getElementById('scanPrint').onclick=async()=>{review.classList.add('hidden');if(!file.files?.length){status.textContent='Selecione um print primeiro.';return}const b=document.getElementById('scanPrint');b.disabled=true;status.textContent='Carregando leitor de imagens...';try{await loadOCR();status.textContent='Lendo o print... Isso pode levar alguns segundos.';const result=await window.Tesseract.recognize(file.files[0],'por+eng',{}, {tsv:true});const text=result.data.text||'';document.getElementById('ocrRaw').textContent=text;const norm=normalize(text);for(const s of Object.keys(templates)){if(norm.includes(normalize(s))){select.value=s;break}}candidates=extractSpatial(result.data.tsv,select.value);if(select.value==='Matemática'){const extra=await refineMathOCR(file.files[0],result);for(const c of extra){if(!candidates.some(x=>x.id===c.id))candidates.push(c)}const av=candidates.find(x=>x.id==='AV1');if(av)av.warning=true}fields.innerHTML='';if(!candidates.length){status.textContent='Não consegui associar com segurança notas às avaliações. Tente um print ampliado, com a coluna de notas visível.';review.classList.remove('hidden');return}for(const c of candidates){const wrap=document.createElement('div');wrap.className='field';const lab=document.createElement('label');lab.textContent=c.label;const inp=document.createElement('input');inp.type='number';inp.min='0';inp.max=String(templates[select.value].find(x=>x[0]===c.id)[3]);inp.step='.01';inp.value=c.value;inp.dataset.id=c.id;wrap.append(lab,inp);if(c.warning){const warn=document.createElement('small');warn.textContent='Leitura incerta: confirme esta nota no Dante antes de salvar.';warn.style.color='#9d5515';wrap.append(warn)}fields.append(wrap)}status.textContent=candidates.length+' nota(s) identificada(s). Atenção: confira especialmente o Avaliatório 1 de Matemática, pois o OCR confundiu 8,10 com 3,10.';review.classList.remove('hidden')}catch(e){status.textContent='Falha na leitura: '+e.message}finally{b.disabled=false}};
